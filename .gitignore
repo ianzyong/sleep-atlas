@@ -1,0 +1,4 @@
+*.sif
+data/
+util/*.txt
+util/*.txt~
