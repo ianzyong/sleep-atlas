@@ -79,9 +79,10 @@ if __name__ == '__main__':
             
             # download data if the file does not already exist
             if not os.path.isfile(outputfile):
-                get_iEEG_data(username, password, iEEG_filename, start_time_usec, stop_time_usec, removed_channels, outputfile)                   process_count += 1
+                get_iEEG_data(username, password, iEEG_filename, start_time_usec, stop_time_usec, removed_channels, outputfile)
+                process_count += 1
             else:
-                print("{} exists, skipping...".format(func_outputfile))
+                print("{} exists, skipping...".format(outputfile))
 
         total_end = time.time()
         print("{}/{} intervals(s) processed in {}.".format(process_count,len(patient_list),convertSeconds(int(total_end - total_start))))
