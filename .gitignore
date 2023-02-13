@@ -3,3 +3,7 @@ data/
 util/*.txt
 util/*.txt~
 util/*.csv
+util/*.bin
+*.png
+*.pyc
+util/*.py~
