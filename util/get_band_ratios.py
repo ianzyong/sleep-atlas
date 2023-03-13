@@ -8,18 +8,14 @@ from fooof import FOOOF
 import time
 
 def convertSeconds(time): 
-    seconds = time % 3600 
+    days = time // (3600*24)
+    time -= days*3600*24
     hours = time // 3600
-    seconds %= 3600
-    minutes = seconds // 60
-    seconds %= 60
-    if seconds < 10:
-        seconds = "0" + str(seconds)
-    if minutes < 10:
-        minutes = "0" + str(minutes)
-    if hours < 10:
-        hours = "0" + str(hours)
-    return ":".join(str(n) for n in [hours,minutes,seconds])
+    time -= hours*3600
+    minutes = time // 60
+    time -= minutes*60
+    seconds = time
+    return ":".join(str(n).rjust(2,'0') for n in [days,hours,minutes,seconds])
 
 def convertTimeStamp(time):
     secs = time.second
@@ -91,6 +87,9 @@ for start in range(0,int(duration),int(args.interval_spacing_usec)):
 
     # calculate power spectrum
     freqs, ps = scipy.signal.welch(data.T, fs=fs)
+    
+    # take the log of the power spectrum
+    #ps = np.log10(ps)
 
     #print(freqs.shape)
     #print(freqs)
@@ -149,6 +148,15 @@ disc = -0.4054
 # classify
 is_awake = norm_ad > disc
 
+#norm_ad histogram
+plt.hist(norm_ad[~np.isnan(norm_ad)])
+plt.axvline(x=disc,color='r',linestyle='dashed')
+plt.xlabel("norm_ad")
+plt.ylabel("Counts")
+plt.savefig(f"{dataset_name}_norm_ad.png",bbox_inches="tight",dpi=600)
+print("norm_ad figure saved to file.")
+plt.close()
+
 print("Sleep/wake classification:")
 print(is_awake)
 
@@ -170,3 +178,4 @@ fig = plt.gcf()
 fig.set_size_inches(40, 8)
 plt.savefig(f"{dataset_name}_heatmap.png",bbox_inches="tight",dpi=600)
 print("Figure saved to file.")
+plt.close()
