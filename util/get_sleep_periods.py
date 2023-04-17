@@ -34,6 +34,10 @@ args = parser.parse_args()
 # read file with start times
 start_times = pd.read_excel("start_times.xlsx")
 
+# read file containing seizure occurences
+xls = pd.ExcelFile("manual_validation.xlsx")
+seizure_times = pd.read_excel(xls, "AllSeizureTimes")
+
 dir_list = os.listdir("../data/")
 
 ratios_list = [x for x in dir_list if x.endswith("_ratios.npy")]
@@ -123,6 +127,15 @@ for file_name in ratios_list:
             row_to_write.append(convertSeconds(offset_seconds+(this_start//1e6))) # start timestamp
             row_to_write.append(convertSeconds(offset_seconds+(this_end//1e6))) # end timestamp
             row_to_write.append(convertSeconds((this_end-this_start)//1e6)) # duration
+            
+            # determine if period contains a seizure
+            # get relevant seizure start and end times
+            this_pat_sz = seizure_times.loc[seizure_times['IEEGname'] == dataset_name]
+            # if any seizure start or end times are contined within the sleep period
+            if (((this_pat_sz['start'] > (this_start//1e6)) & (this_pat_sz['start'] < (this_end//1e6))).any() or ((this_pat_sz['end'] > (this_start//1e6)) & (this_pat_sz['end'] < (this_end//1e6))).any()):
+                row_to_write.append(True)
+            else:
+                row_to_write.append(False)
 
             this_pat_rows.append(row_to_write)
     
@@ -131,7 +144,7 @@ for file_name in ratios_list:
     rows_to_write = rows_to_write + this_pat_rows
     
 # initialize dataframe
-period_df = pd.DataFrame(columns=["ID","sleep_num","real_start_us","real_end_us","ieeg_start_us","ieeg_end_us","start_timestamp","end_timestamp","duration"], data=rows_to_write)
+period_df = pd.DataFrame(columns=["ID","sleep_num","real_start_us","real_end_us","ieeg_start_us","ieeg_end_us","start_timestamp","end_timestamp","duration","contains_seizure"], data=rows_to_write)
 print(period_df)
 period_df.to_excel("../data/sleep_periods.xlsx")
 print("Sleep periods saved to disk.")
