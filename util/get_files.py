@@ -2,6 +2,12 @@ import os
 import sys
 import time
 from download_iEEG_data import get_iEEG_data
+import numpy as np
+import pandas as pd
+sys.path.append('../../ieegpy/ieeg')
+import ieeg
+from ieeg.auth import Session
+import pyedflib
 
 # convert number of seconds to hh:mm:ss
 def convertSeconds(time): 
@@ -75,14 +81,29 @@ if __name__ == '__main__':
             # create necessary directories if they do not exist
             if not os.path.exists(patient_directory):
                 os.makedirs(eeg_directory)
-            outputfile = os.path.join(eeg_directory,"sub-{}_{}_{}_{}_EEG.pickle".format(rid,iEEG_filename,start_time_usec,stop_time_usec))
+            output_file = os.path.join(eeg_directory,"sub-{}_{}_{}_{}_EEG.pickle".format(rid,iEEG_filename,start_time_usec,stop_time_usec))
             
             # download data if the file does not already exist
-            if not os.path.isfile(outputfile):
-                get_iEEG_data(username, password, iEEG_filename, start_time_usec, stop_time_usec, removed_channels, outputfile)
+            if not os.path.isfile(output_file):
+                get_iEEG_data(username, password, iEEG_filename, start_time_usec, stop_time_usec, removed_channels, output_file)
                 process_count += 1
             else:
-                print("{} exists, skipping...".format(outputfile))
+                print("{} exists, skipping...".format(output_file))
+            
+            pickle_data = pd.read_pickle(output_file)
+            signals = np.transpose(pickle_data[0].to_numpy())
+
+            # change nan to zero
+            signals = np.nan_to_num(signals)
+
+            s = Session(username, password)
+            ds = s.open_dataset(iEEG_filename)
+            channel_names = ds.get_channel_labels()
+
+            signal_headers = pyedflib.highlevel.make_signal_headers(channel_names, physical_min=-50000, physical_max=50000, transducer="seeg")
+            header = pyedflib.highlevel.make_header(patientname=rid)
+            edf_file = os.path.join(patient_directory,"{}_{}_{}.edf".format(iEEG_filename,start_time_usec,stop_time_usec))
+            pyedflib.highlevel.write_edf(edf_file, signals, signal_headers, header)
 
         total_end = time.time()
         print("{}/{} intervals(s) processed in {}.".format(process_count,len(patient_list),convertSeconds(int(total_end - total_start))))
