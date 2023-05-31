@@ -10,6 +10,11 @@ import pickle
 import numpy as np
 import matlab
 import matlab.engine
+from fractions import Fraction
+import scipy
+import mne
+from mne_bids import BIDSPath, write_raw_bids
+import pyedflib
 
 # convert number of seconds to hh:mm:ss
 def convertSeconds(time): 
@@ -107,38 +112,57 @@ if __name__ == '__main__':
             # downsample to 200 Hz
             new_fs = 200
             frac = Fraction(new_fs, int(fs))
-            signals = resample_poly(
-            signals, up=frac.numerator, down=frac.denominator
+            signals = scipy.signal.resample_poly(
+            signals, up=frac.numerator, down=frac.denominator, axis=1
             ) # (n_samples, n_channels)
             fs = new_fs
-
+            
             # save the data
             # run is the iEEG file number
             # task is ictal with the start time in seconds appended
             data_info = mne.create_info(ch_names=list(channel_names), sfreq=fs, ch_types="eeg", verbose=False)
             raw = mne.io.RawArray(signals / 1e6, data_info, verbose=False)
+            
 
+
+            # write interval to an edf file
+                
+            signal_headers = pyedflib.highlevel.make_signal_headers(channel_names, physical_min=-50000, physical_max=50000)
+            #sample_rate = ds.sample_rate
+            header = pyedflib.highlevel.make_header(patientname=rid)
+
+            # edf_file = os.path.join(patient_directory,"sub-{}_{}_{}_{}_EEG.edf".format(rid,iEEG_filename,start_time_usec,stop_time_usec))
+            interval_name = f"{rid}_{start_time_usec}_{stop_time_usec}"
+
+            edf_file = os.path.join(patient_directory,"{}.edf".format(interval_name))
+            
+            pyedflib.highlevel.write_edf(edf_file, signals, signal_headers, header)
+
+
+            #raw.filenames = output_file
+            
             #raw.set_channel_types(ch_types.type)
 
             # write to bids
-            bids_path = BIDSPath(subject=f'{rid}', task=f'interictal', root='../data', extension='.edf')
+            #bids_path = BIDSPath(subject=f'{rid}', task=f'interictal', root='../data', extension='.edf')
 
-            mne_bids.write_raw_bids(
-                raw,
-                bids_path,
-                overwrite=OVERWRITE,
-                verbose=False,
-                allow_preload=True,
-                format="EDF",
-            )
+            #write_raw_bids(
+            #    raw,
+            #    bids_path,
+            #    overwrite=True,
+            #    verbose=False,
+            #    format="EDF",
+            #)
 
             # run sleepSEEG
+            # print(patient_directory)
             eng = matlab.engine.start_matlab()
-            output = eng.SleepSEEG(bids_path.basename,None)
+            eng.SleepSEEG(edf_file,patient_directory+"/",nargout=0)
 
             # write output to file
-            with open(f'../data/{rid}_{start_time_usec}_{stop_time_usec}_stage_summary.txt', 'w') as f:
-                f.write(str(output)) 
+            #with open(os.path.join(patient_directory,f"{rid}_{start_time_usec}_{stop_time_usec}_stage_summary.txt"), 'w') as f:
+            #    f.write(str(output))
+            #    print("Saved to patient directory.")
 
             # signal_headers = pyedflib.highlevel.make_signal_headers(channel_names, physical_min=-50000, physical_max=50000, transducer="seeg")
             # header = pyedflib.highlevel.make_header(patientname=rid)

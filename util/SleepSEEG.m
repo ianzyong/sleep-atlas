@@ -1,4 +1,4 @@
-function [Summary,SleepStage]=SleepSEEG(FileList,ExtraFiles)
+function []=SleepSEEG(FileList,SavePath,ExtraFiles)
 
  % [Summary,SleepStage]=SleepSEEG(FileList,ExtraFiles)
  %
@@ -52,6 +52,8 @@ function [Summary,SleepStage]=SleepSEEG(FileList,ExtraFiles)
 % doi: 10.1007/s10548-014-0379-1 to compute the IED rate).
 version='EEA';
 
+pwd
+
 % Select night files
 if nargin==0
     [FileList,FilePath]=uigetfile('*.SIG;*.EDF;*.REC','Select files of one complete night','MultiSelect','on');
@@ -63,25 +65,25 @@ if nargin==0
 end
 if iscell(FileList), file=FileList; else, file=cell(1); file{1}=FileList; end
 % Select extra files
-if nargin<2
-    [ExtraFiles,ExtraPath]=uigetfile('*.SIG;*.EDF;*.REC','Select all extra files to process, e.g. naps','MultiSelect','on');
-    if ~all(ExtraFiles==0)
-        if iscell(ExtraFiles)
-            for ii=1:length(ExtraFiles), ExtraFiles{ii}=[ExtraPath ExtraFiles{ii}]; end
-        else
-            ExtraFiles=[ExtraPath ExtraFiles];
-        end
-    end
-end
+%if nargin<2
+%    [ExtraFiles,ExtraPath]=uigetfile('*.SIG;*.EDF;*.REC','Select all extra files to process, e.g. naps','MultiSelect','on');
+%    if ~all(ExtraFiles==0)
+%        if iscell(ExtraFiles)
+%            for ii=1:length(ExtraFiles), ExtraFiles{ii}=[ExtraPath ExtraFiles{ii}]; end
+%        else
+%            ExtraFiles=[ExtraPath ExtraFiles];
+%        end
+%    end
+%end
 sf=size(file);
 [nnf,sf]=max(sf);
-if ~all(ExtraFiles==0)
-    if iscell(ExtraFiles)
-        file=cat(sf,file,ExtraFiles);
-    else
-        file{nff+1}=ExtraFiles;
-    end
-end
+%if ~all(ExtraFiles==0)
+%    if iscell(ExtraFiles)
+%        file=cat(sf,file,ExtraFiles);
+%    else
+%        file{nff+1}=ExtraFiles;
+%    end
+%end
 % Read first file and get number of channel
 FileName=file{1};
 fp=fopen(FileName,'r','ieee-le');
@@ -141,10 +143,16 @@ for ii=1:length(eles)
     end
 end
 ChL=ChL(1:nc); MM=MM(1:nc,:);
-[Channels,l]=listdlg('ListString', ChL,'PromptString','Select channels');
-if l==0; return;  end
-MM=MM(Channels,:);
-Nch=nnz(Channels);
+%[Channels,l]=listdlg('ListString', ChL,'PromptString','Select channels');
+%if l==0; return;  end
+
+%MM=MM(Channels,:);
+%Nch=nnz(Channels);
+
+MM=MM((1:nc),:);
+size(MM)
+Nch=nc
+
 Nfeat=24;    
 ne=0;
 feature=zeros(Nfeat,Nch,1500);
@@ -268,7 +276,10 @@ for nch=1:Nch
         f(in)=[];
         f=f-movmean(f,10);
         fs=sort(f);
-        m=fs(round([.25 .75]*size(fs,2)));
+	
+	%size(feature)
+	%size(fs,2)
+        m=fs(round([.25 .75].*size(fs,2)));
         del=isnan(feature(nch,:,nf));
         del(~in)=f<m(1)-2.5*(m(2)-m(1))|f>m(2)+2.5*(m(2)-m(1))|isnan(f);
         feature(nch,del,nf)=NaN;
@@ -355,6 +366,18 @@ for ii=size(icc,1)+1:-1:3
     if strcmp(Summary{ii,1},Summary{ii-1,1}), Summary{ii,1}=' '; end
     if strcmp(Summary{ii,2},Summary{ii-1,2}), Summary{ii,2}=' '; end
 end
+
+% save result to disk
+
+T = cell2table(Summary(2:end,:),"VariableNames",Summary(1,:));
+
+writetable(T,strcat(SavePath,"summary.csv"));
+
+T = array2table(SleepStage(:,1:4),"VariableNames",{'file_index','time','sleep_stage','confidence'});
+
+writetable(T,strcat(SavePath,"sleepstage.csv"));
+
+disp("Results saved to disk.")
 
 end
 
