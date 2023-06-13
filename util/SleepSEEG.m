@@ -377,8 +377,6 @@ T = array2table(SleepStage(:,1:4),"VariableNames",{'file_index','time','sleep_st
 
 writetable(T,strcat(SavePath,"sleepstage.csv"));
 
-disp("Results saved to disk.")
-
 end
 
 
