@@ -41,11 +41,14 @@ def convertTimeStamp(time):
     return hours*60*60 + mins*60 + secs
 
 def getStartTime(fst,x):
+    id = x.split("_")[0]
+    if len(id) == 5:
+        id = id[0:3] + "0" + id[-2:]
     if len(x.split("_")) > 2:
-        ans = convertTimeStamp(str(fst.loc[fst['name'] == x.split("_")[0]][x.split("_")[2][-1:]]).split(" ")[1])
+        ans = fst.loc[fst['name'] == id][int(x.split("_")[2][-1:])]
     else:
-        ans = convertTimeStamp(str(fst.loc[fst['name'] == x.split("_")[0]][1]).split(" ")[1])
-    return ans
+        ans = fst.loc[fst['name'] == id][1]
+    return convertTimeStamp(ans.values[0])
 
 def classify_single_patient(username,password,iEEG_filename,rid,real_offset_sec): 
     # download eeg data
@@ -71,7 +74,9 @@ def classify_single_patient(username,password,iEEG_filename,rid,real_offset_sec)
         nights.append([this_start,this_end])
         this_start += 24*60*60
         this_end += 24*60*60
-
+    
+    print(" ")
+    print(f"number of nights for {iEEG_filename} = {len(nights)}")
     for night in nights:
         start = night[0]
         end = night[1]
@@ -90,6 +95,10 @@ def classify_single_patient(username,password,iEEG_filename,rid,real_offset_sec)
             pass
             #print("{} exists, skipping...".format(output_file))
         
+        if not os.path.isfile(output_file):
+            print(f"Skipping {iEEG_filename}, {start_time_usec} to {stop_time_usec}.")
+            continue
+
         pickle_data = pd.read_pickle(output_file)
         signals = np.transpose(pickle_data[0].to_numpy())
 
@@ -125,6 +134,7 @@ def classify_single_patient(username,password,iEEG_filename,rid,real_offset_sec)
         # run SleepSEEG in MATLAB
         eng = matlab.engine.start_matlab()
         eng.SleepSEEG(edf_file,patient_directory+"/",nargout=0)
+        print(f"Results saved to {patient_directory}.")
 
 # MAIN
 if len(sys.argv) == 3:
@@ -146,6 +156,7 @@ xls = pd.ExcelFile("manual_validation.xlsx")
 ast = pd.read_excel(xls, "AllSeizureTimes")
 # list of iEEG_filename
 all_pats = list(set(ast["IEEGname"]))
+all_pats = [x for x in all_pats if str(x) != 'nan']
 # get list of rids
 rids = [x.split("_")[0] for x in all_pats]
 # get actual start times
@@ -154,6 +165,8 @@ fst = pd.read_excel(xls, "FileStartTimes")
 start_times = [getStartTime(fst,x) for x in all_pats]
 # format argument list to pass to pqdm
 args = [[username,password,all_pats[x],rids[x],start_times[x]] for x in range(len(all_pats))]
+
+print(f"total number of patients = {len(args)}")
 
 total_start = time.time()
 
