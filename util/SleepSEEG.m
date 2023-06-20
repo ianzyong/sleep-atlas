@@ -256,7 +256,7 @@ for nf=1:length(file)
         end
         night(ne)=nf<=nnf;
         SleepStage(ne,5)=sta+30*fs*(ii-1);
-        disp(Ne-ii);
+        % disp(Ne-ii);
     end
     fclose(fp);
 end

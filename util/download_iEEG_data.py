@@ -83,7 +83,7 @@ def get_iEEG_data(username, password, iEEG_filename, start_time_usec, stop_time_
                 #break_data = np.zeros(shape = (int(np.ceil(duration/1e6*fs)), len(channels)))#initialize
                 break_data = np.empty(shape=(0,len(channels)), dtype=float)
                 #print("breaking up data request from server because length is too long")
-                for i in trange(len(break_times)-1):
+                for i in tqdm.trange(len(break_times)-1):
                     #print("{0}/{1}".format(i+1, len(break_times)-1))
                     break_data = np.append(break_data, ds.get_data(break_times[i], break_times[i+1]-break_times[i], channels), axis=0)
                     #try:
@@ -94,7 +94,7 @@ def get_iEEG_data(username, password, iEEG_filename, start_time_usec, stop_time_
                     #    return
                 data = break_data
         except ieeg.ieeg_api.IeegConnectionError as e:
-            print(e.message)
+            print(e)
             print("Skipping...")
             return
         df = pd.DataFrame(data, columns=ds.ch_labels)
