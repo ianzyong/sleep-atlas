@@ -20,6 +20,8 @@ from pqdm.processes import pqdm
 import getpass
 import argparse
 import matplotlib.pyplot as plt
+import gzip
+import shutil
 
 # DEFINITIONS
 # convert number of seconds to hh:mm:ss
@@ -101,16 +103,18 @@ def classify_single_patient(username,password,iEEG_filename,rid,real_offset_sec,
         # .edf output path
         interval_name = f"{iEEG_filename}_{start_time_usec}_{stop_time_usec}"
         edf_file = os.path.join(patient_directory,"{}.edf".format(interval_name))
+        edf_gz = edf_file + ".gz"
 
         # download .pickle and write to .edf if the .edf file does not already exist
-        if not os.path.isfile(edf_file):
+        if not os.path.isfile(edf_gz):
             # check to see if the .edf exists under an old file name
             old_edf = os.path.join(patient_directory,f"{rid}_{start_time_usec}_{stop_time_usec}.edf")
             if os.path.isfile(old_edf):
                 # rename the old file
                 os.rename(old_edf,edf_file)
                 print("old .edf file name detected and renamed.")
-            else:
+            elif not os.path.isfile(edf_file):
+                print(".edf file not detected.")
                 # download .pickle file
                 get_iEEG_data(username, password, iEEG_filename, start_time_usec, stop_time_usec, removed_channels, output_file)
                 
@@ -149,9 +153,15 @@ def classify_single_patient(username,password,iEEG_filename,rid,real_offset_sec,
                 pyedflib.highlevel.write_edf(edf_file, signals, signal_headers, header)
                 print(".edf saved.")
 
+            # compress .edf as .gz file
+            print("Compressing .edf file...")
+            with open(edf_file, 'rb') as f_in, gzip.open(edf_gz, 'wb') as f_out:
+                shutil.copyfileobj(f_in, f_out)
+            print(".edf file successfully compressed.")
+            
         else:
-            print(f".edf for {rid} exists, skipping download.")
-        
+            print(f".edf.gz for {rid} exists, skipping download.")
+
         if os.path.isfile(output_file):
             # delete .pickle file to save space
             os.remove(output_file)
@@ -159,6 +169,10 @@ def classify_single_patient(username,password,iEEG_filename,rid,real_offset_sec,
         
         # run SleepSEEG if results do not already exist
         if not os.path.isfile(patient_directory+f"/{iEEG_filename}_{start_time_usec}_{stop_time_usec}_night{k+1}_summary.csv"):
+            # decompress .edf
+            print("Decompressing .edf file...")
+            with gzip.open(edf_gz, 'r') as f_in, open(edf_file, 'wb') as f_out:
+                shutil.copyfileobj(f_in, f_out)
             # run SleepSEEG in MATLAB
             eng = matlab.engine.start_matlab()
             try:
@@ -167,9 +181,15 @@ def classify_single_patient(username,password,iEEG_filename,rid,real_offset_sec,
                 print(e)
                 print("MATLAB error encountered, skipping to next night.")
                 continue
-            print(f"Results saved to {patient_directory}.")    
+            print(f"Results saved to {patient_directory}.")
+              
         else:
             print(f"Sleep stage classifications for night {k+1} already exist.")
+
+        if os.path.isfile(edf_file):
+            # delete decompressed .edf file
+            os.remove(edf_file)
+            print("Decompressed .edf removed.")  
 
         # if make_plot is True and the plot does not exist, make a plot
         plot_file = os.path.join(patient_directory,f"{iEEG_filename}_{start_time_usec}_{stop_time_usec}_night{k+1}_plot.png")
