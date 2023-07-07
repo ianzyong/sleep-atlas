@@ -66,6 +66,7 @@ def classify_single_patient(username,password,iEEG_filename,rid,real_offset_sec,
     eeg_directory = os.path.join(patient_directory,'eeg')
 
     # get dataset metadata
+    print(f"\nAccessing dataset for {iEEG_filename}...")
     s = Session(username, password)
     ds = s.open_dataset(iEEG_filename)
     channel_names = ds.get_channel_labels()
@@ -73,6 +74,7 @@ def classify_single_patient(username,password,iEEG_filename,rid,real_offset_sec,
 
     # get duration in seconds
     duration = ds.get_time_series_details(ds.ch_labels[0]).number_of_samples/fs
+    s.close_dataset(iEEG_filename)
 
     # get list of start and stop times 
     this_start = (20*60*60) - (real_offset_sec % (20*60*60))
@@ -83,7 +85,6 @@ def classify_single_patient(username,password,iEEG_filename,rid,real_offset_sec,
         this_start += 24*60*60
         this_end += 24*60*60
     
-    print(" ")
     print(f"number of nights for {iEEG_filename} = {len(nights)}")
     for k in range(len(nights)):
         night = nights[k]
@@ -92,7 +93,7 @@ def classify_single_patient(username,password,iEEG_filename,rid,real_offset_sec,
         start_time_usec = start*1e6
         stop_time_usec = end*1e6
 
-        print(f"Night {k+1}:")
+        print(f"\n{iEEG_filename}, night {k+1}:")
 
         # create necessary directories if they do not exist
         if not os.path.exists(patient_directory):
@@ -158,7 +159,7 @@ def classify_single_patient(username,password,iEEG_filename,rid,real_offset_sec,
             with open(edf_file, 'rb') as f_in, gzip.open(edf_gz, 'wb') as f_out:
                 shutil.copyfileobj(f_in, f_out)
             print(".edf file successfully compressed.")
-            
+
         else:
             print(f".edf.gz for {rid} exists, skipping download.")
 
@@ -257,7 +258,7 @@ print(f"total number of patients = {len(args)}")
 total_start = time.time()
 
 # run patient classifications
-for arg in tqdm(args):
+for arg in args:
     classify_single_patient(*arg)
 
 #result = pqdm(args, classify_single_patient, n_jobs=2, argument_type='args')

@@ -52,8 +52,6 @@ function []=SleepSEEG(FileList,SavePath,ExtraFiles)
 % doi: 10.1007/s10548-014-0379-1 to compute the IED rate).
 version='EEA';
 
-pwd
-
 % Select night files
 if nargin==0
     [FileList,FilePath]=uigetfile('*.SIG;*.EDF;*.REC','Select files of one complete night','MultiSelect','on');
@@ -77,31 +75,40 @@ if iscell(FileList), file=FileList; else, file=cell(1); file{1}=FileList; end
 %end
 sf=size(file);
 [nnf,sf]=max(sf);
-%if ~all(ExtraFiles==0)
-%    if iscell(ExtraFiles)
-%        file=cat(sf,file,ExtraFiles);
-%    else
-%        file{nff+1}=ExtraFiles;
-%    end
-%end
+
+% if ~all(ExtraFiles==0)
+%     if iscell(ExtraFiles)
+%         file=cat(sf,file,ExtraFiles);
+%     else
+%         file{nff+1}=ExtraFiles;
+%     end
+% end
+
+if ~isempty(ExtraFiles)
+    % concatenate files
+    file=cat(sf,file,ExtraFiles.')
+end
+
 % Read first file and get number of channel
 FileName=file{1};
 fp=fopen(FileName,'r','ieee-le');
 header_ini=char(fread(fp,256,'uchar')');
 Nch=str2double(header_ini(253:256));
+disp("Nch: "+Nch)
 channel_info.name=char(fread(fp,[16,Nch],'char')');
 fclose(fp);
 % Verify files are not EDF+D and have the same channels
 for nf=1:length(file)
     FileName=file{nf};
+    disp("Reading file: "+FileName)
     fp=fopen(FileName,'r','ieee-le');
     header_ini=char(fread(fp,256,'uchar')');
-    if header_ini(197)=='D'
-        disp([FileName ' is an EDF+D file (discontinuous), which is not supported by IntraSleep.']);
-        disp('It is possible to convert it to EDF+C with e.g., EDF Browser free software.');
-        SleepStage=[]; Summary=[];         
-        return;
-    end
+    % if header_ini(197)=='D'
+    %     disp([FileName ' is an EDF+D file (discontinuous), which is not supported by IntraSleep.']);
+    %     disp('It is possible to convert it to EDF+C with e.g., EDF Browser free software.');
+    %     SleepStage=[]; Summary=[];         
+    %     return;
+    % end
     num_channels=str2double(header_ini(253:256));
     nam=char(fread(fp,[16,num_channels],'char')');
     if Nch~=num_channels
@@ -118,6 +125,10 @@ end
 nmax=0; ele=cell(Nch,1); num=zeros(Nch,1);
 for ii=1:Nch
     chan=deblank(channel_info.name(ii,:));
+    % remove "-Ref" ending from channel names
+    if strlength(chan) > 4 && chan(end-3:end)=="-Ref"
+        chan = chan(1:end-4);
+    end
     sp=strfind(chan,' ');
     if ~isempty(sp), chan=chan(sp+1:end); end
     if isnan(str2double(chan(end)))
@@ -133,12 +144,15 @@ eles=unique(ele,'stable');
 % Create bipolars
 MM=zeros(Nch); nc=0; ChL=cell(Nch,1);
 for ii=1:length(eles)
-    for jj=2:nmax
-        k=find(strcmp(eles{ii},ele)&num==jj-1,1);
-        ke=find(strcmp(eles{ii},ele)&num==jj,1);
-        if ~isempty(k)&&~isempty(ke)
-            nc=nc+1; MM(nc,ke)=-1; MM(nc,k)=1; 
-            ChL{nc}=[eles{ii} num2str(jj-1) '-' eles{ii} num2str(jj)];
+    % ignore EKG leads
+    if ~contains(eles{ii},"EKG")
+        for jj=2:nmax
+            k=find(strcmp(eles{ii},ele)&num==jj-1,1);
+            ke=find(strcmp(eles{ii},ele)&num==jj,1);
+            if ~isempty(k)&&~isempty(ke)
+                nc=nc+1; MM(nc,ke)=-1; MM(nc,k)=1; 
+                ChL{nc}=[eles{ii} num2str(jj-1) '-' eles{ii} num2str(jj)];
+            end
         end
     end
 end
@@ -221,6 +235,15 @@ for nf=1:length(file)
     %X=reshape(X(repmat(keep,buffer,1)),[samp num_ch buffer]);
 
     mask = repmat(keep,buffer,1);
+
+    % TODO: testing
+    % print size of X
+    %disp('size of X')
+    %size(X)
+    % print size of mask
+    %disp('size of mask')
+    %size(mask)
+
     X=X.*(mask./mask);
     X=X(~isnan(X));
     X=reshape(X,[samp num_ch buffer]);
@@ -228,6 +251,15 @@ for nf=1:length(file)
     X=permute(X,[1 3 2]);
     X=reshape(X,samp*buffer,num_ch);
     X=X(sta-1.25*fs+1:end,:);
+
+    % TODO: testing
+    % print size of a
+    %disp('size of a')
+    %size(a)
+    % print size of MM
+    %disp('size of MM')
+    %size(MM)
+    
     M=diag(a(keep_channels))*MM(:,keep_channels)';
     Xb=(X-repmat(b(keep_channels),size(X,1),1))*M;
     % Compute features

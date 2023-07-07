@@ -75,28 +75,25 @@ def get_iEEG_data(username, password, iEEG_filename, start_time_usec, stop_time_
         #The server blocks large requests, so the below code breaks up the request and 
         #concatenates the data
         server_limit_minutes = 5
-        try:
-            if duration < server_limit_minutes*60*1e6:
-                data = ds.get_data(start_time_usec, duration, channels)
-            if duration >= server_limit_minutes*60*1e6:
-                break_times = np.ceil(np.linspace(start_time_usec, stop_time_usec, num=int(np.ceil(duration/(server_limit_minutes*60*1e6))+1), endpoint=True))
-                #break_data = np.zeros(shape = (int(np.ceil(duration/1e6*fs)), len(channels)))#initialize
-                break_data = np.empty(shape=(0,len(channels)), dtype=float)
-                #print("breaking up data request from server because length is too long")
-                for i in tqdm.trange(len(break_times)-1):
-                    #print("{0}/{1}".format(i+1, len(break_times)-1))
-                    break_data = np.append(break_data, ds.get_data(break_times[i], break_times[i+1]-break_times[i], channels), axis=0)
-                    #try:
-                    #    break_data[range(int( np.floor((break_times[i]-break_times[0])/1e6*fs) ), int(  np.floor((break_times[i+1]- break_times[0])/1e6*fs) )  ),:] = ds.get_data(break_times[i], break_times[i+1]-break_times[i], channels)
-                    #except ValueError as e:
-                    #    print(e)
-                    #    print("ValueError encountered in breaking data up for download, arrays are likely mishaped. Skipping...")
-                    #    return
-                data = break_data
-        except ieeg.ieeg_api.IeegConnectionError as e:
-            print(e)
-            print("Skipping...")
-            return
+
+        if duration < server_limit_minutes*60*1e6:
+            data = ds.get_data(start_time_usec, duration, channels)
+        if duration >= server_limit_minutes*60*1e6:
+            break_times = np.ceil(np.linspace(start_time_usec, stop_time_usec, num=int(np.ceil(duration/(server_limit_minutes*60*1e6))+1), endpoint=True))
+            #break_data = np.zeros(shape = (int(np.ceil(duration/1e6*fs)), len(channels)))#initialize
+            break_data = np.empty(shape=(0,len(channels)), dtype=float)
+            #print("breaking up data request from server because length is too long")
+            for i in tqdm.trange(len(break_times)-1):
+                #print("{0}/{1}".format(i+1, len(break_times)-1))
+                break_data = np.append(break_data, ds.get_data(break_times[i], break_times[i+1]-break_times[i], channels), axis=0)
+                #try:
+                #    break_data[range(int( np.floor((break_times[i]-break_times[0])/1e6*fs) ), int(  np.floor((break_times[i+1]- break_times[0])/1e6*fs) )  ),:] = ds.get_data(break_times[i], break_times[i+1]-break_times[i], channels)
+                #except ValueError as e:
+                #    print(e)
+                #    print("ValueError encountered in breaking data up for download, arrays are likely mishaped. Skipping...")
+                #    return
+            data = break_data
+
         df = pd.DataFrame(data, columns=ds.ch_labels)
         true_ignore_electrodes = []
         if ignore_electrodes != ['']:
@@ -118,8 +115,9 @@ def get_iEEG_data(username, password, iEEG_filename, start_time_usec, stop_time_
         # data has already been downloaded for this interval
         print("{} exists, skipping...".format(outputfile))
 
+    s.close_dataset(iEEG_filename)
     # return ignore_electrodes as they are called on ieeg.org
-    return true_ignore_electrodes
+    return fs, true_ignore_electrodes
 
 def get_true_ignore_electrodes(labels, ignore_electrodes):
     true_ignore_electrodes = []

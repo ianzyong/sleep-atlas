@@ -6,6 +6,8 @@ import pandas as pd
 import scipy
 from fooof import FOOOF
 import time
+import getpass
+import os
 
 def convertSeconds(time): 
     days = time // (3600*24)
@@ -23,10 +25,15 @@ def convertTimeStamp(time):
     hours = time.hour
     return hours*60*60 + mins*60 + secs
 
+def padId(id):
+    if len(id) == 5:
+        id = id[0:3] + "0" + id[-2:]
+    return id
+
 figure_saved = False
 
 parser = argparse.ArgumentParser()
-parser.add_argument('-u', '--user', required=True, help='username')
+parser.add_argument('-u', '--user', required=True, type=str, help='username')
 parser.add_argument('-p', '--password', required=True, help='password')
 parser.add_argument('iEEG_filename', type=str)
 parser.add_argument('interval_spacing_usec', type=int)
@@ -37,12 +44,25 @@ args = parser.parse_args()
 with open(args.password, 'r') as f:
     pwd = f.read()
 
+# get password
+#password = getpass.getpass(prompt='IEEG.org password: ', stream=None)
+
 #dataset_name = args.iEEG_filename
-dataset_names = np.loadtxt(args.iEEG_filename, dtype="str")
+# if type of args.iEEG_filename is .csv
+if (args.iEEG_filename[-4:] == ".csv"):
+    dataset_names = np.loadtxt(args.iEEG_filename, dtype="str", delimiter=",")
+else:
+    dataset_names = np.loadtxt(args.iEEG_filename, dtype="str")
 
 for dataset_name in dataset_names:
     
     print(f"Calculating ratios for {dataset_name}...")
+
+    ratio_save_path = f"../data/ad_ratios/{dataset_name}_ratios.npy"
+
+    if (os.path.exists(ratio_save_path)):
+        print(f"Ratios for {dataset_name} already calculated. Skipping...")
+        continue
 
     # read file with start times
     start_times = pd.read_excel("start_times.xlsx")
@@ -51,9 +71,9 @@ for dataset_name in dataset_names:
         # get real start time in seconds
         name_parts = dataset_name.split("_")
         if (len(name_parts) < 3):
-            timestamp = start_times.loc[start_times['name'] == name_parts[0],1].values[0]
+            timestamp = start_times.loc[start_times['name'] == padId(name_parts[0]),1].values[0]
         else:
-            timestamp = start_times.loc[start_times['name'] == name_parts[0],int(name_parts[2][-1])].values[0]
+            timestamp = start_times.loc[start_times['name'] == padId(name_parts[0]),int(name_parts[2][-1])].values[0]
 
         offset_seconds = convertTimeStamp(timestamp)
     except:
@@ -73,8 +93,9 @@ for dataset_name in dataset_names:
             
         all_ratios = []
     
-    except:
-        print("Error finding {dataset_name} on iEEG.org. Skipping...")
+    except Exception as e:
+        print(e)
+        print(f"Error finding {dataset_name} on iEEG.org. Skipping...")
         continue
 
     # start timer
@@ -156,7 +177,7 @@ for dataset_name in dataset_names:
     print(all_ratios.shape)
     print(all_ratios)
 
-    np.save(f"../data/{dataset_name}_ratios",all_ratios)
+    np.save(ratio_save_path,all_ratios)
     total_end = time.time()
 
     print("Ratios saved to file. Intervals processed in {}.".format(convertSeconds(int(total_end - total_start))))
@@ -176,7 +197,7 @@ for dataset_name in dataset_names:
     plt.axvline(x=disc,color='r',linestyle='dashed')
     plt.xlabel("norm_ad")
     plt.ylabel("Counts")
-    plt.savefig(f"{dataset_name}_norm_ad.png",bbox_inches="tight",dpi=600)
+    plt.savefig(f"../data/norm_ad/{dataset_name}_norm_ad.png",bbox_inches="tight",dpi=600)
     print("norm_ad figure saved to file.")
     plt.close()
 
@@ -185,20 +206,24 @@ for dataset_name in dataset_names:
 
     # sleep/wake colors
     swc = ["#f5e642" if x else "#0005a1" for x in is_awake]
-
-    # plot result
-    plt.imshow(all_ratios, extent=[0,all_ratios.shape[1],0,all_ratios.shape[0]], cmap='hot', interpolation='nearest')
-    cbar = plt.colorbar()
-    cbar.set_label("Alpha to Delta Band Power Ratio")
-    plt.scatter(range(len(is_awake)),np.zeros((1,len(is_awake))),c=swc)
-    plt.xlabel("Time of day (s)")
-    plt.ylabel("Channel")
-    plt.xticks(range(int(duration)//int(args.interval_spacing_usec)+1),labels=[convertSeconds(offset_seconds+x) for x in range(int(0),int(duration/1000000),int(args.interval_spacing_usec/1000000))], fontsize=3, rotation = "vertical")
-    print(len(labels))
-    plt.yticks(range(len(labels)),labels=labels, fontsize=3)
-    plt.title(f"Patient = {args.iEEG_filename}")
-    fig = plt.gcf()
-    fig.set_size_inches(40, 8)
-    plt.savefig(f"{dataset_name}_heatmap.png",bbox_inches="tight",dpi=600)
-    print("Figure saved to file.")
-    plt.close()
+    
+    try:
+        # plot result
+        plt.imshow(all_ratios, extent=[0,all_ratios.shape[1],0,all_ratios.shape[0]], cmap='hot', interpolation='nearest')
+        cbar = plt.colorbar()
+        cbar.set_label("Alpha to Delta Band Power Ratio")
+        plt.scatter(range(len(is_awake)),np.zeros((1,len(is_awake))),c=swc)
+        plt.xlabel("Time of day (s)")
+        plt.ylabel("Channel")
+        plt.xticks(range(int(duration)//int(args.interval_spacing_usec)+1),labels=[convertSeconds(offset_seconds+x) for x in range(int(0),int(duration/1000000),int(args.interval_spacing_usec/1000000))], fontsize=3, rotation = "vertical")
+        print(len(labels))
+        plt.yticks(range(len(labels)),labels=labels, fontsize=3)
+        plt.title(f"Patient = {args.iEEG_filename}")
+        fig = plt.gcf()
+        fig.set_size_inches(40, 8)
+        plt.savefig(f"../data/heatmap/{dataset_name}_heatmap.png",bbox_inches="tight",dpi=600)
+        print("Figure saved to file.")
+        plt.close()
+    except Exception as e:
+        print(e)
+        print("Figure not saved to file.")
