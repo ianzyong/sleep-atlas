@@ -7,6 +7,7 @@ import pickle
 import numpy as np
 from fractions import Fraction
 import scipy
+from scipy.signal import resample_poly, iirnotch, filtfilt
 import mne
 from mne_bids import BIDSPath, write_raw_bids
 import pyedflib
@@ -48,7 +49,7 @@ def getStartTime(fst,x):
         ans = fst.loc[fst['name'] == id][1]
     return convertTimeStamp(ans.values[0])
 
-def get_time_delta_for_stage(result_path, sleep_stage): # TODO: finish this function
+def get_time_delta_for_stage(result_path, sleep_stage):
     # result_path: path to sleepSEEG summary csv
     # sleep_stage: "R", "W", "N1", "N2", "N3"
     # convert sleep_stage to sleepSEEG number
@@ -63,10 +64,10 @@ def get_time_delta_for_stage(result_path, sleep_stage): # TODO: finish this func
     curr_len = 0
     longest_index = 0
     for k in range(len(sleep_stage_results)):
-        if (sleep_stage_results[k] == sleep_stage_num):
+        if (sleep_stage_results.iloc[k] == sleep_stage_num):
             curr_len += 1
         # if the current segment is longer than the longest segment but shorter than one hour (to ignore faulty data), update longest_len and longest_index
-        elif (curr_len > longest_len) and (curr_len*period < 3600):
+        elif ((curr_len > longest_len) and ((curr_len*period < 3600) or (sleep_stage_num == 2))):
             longest_len = curr_len
             longest_index = (k-curr_len)//2 # middle index of longest segment
             curr_len = 0
@@ -94,7 +95,7 @@ def get_coherence(pkl, band_start_hz, band_end_hz, interval_length = 1, fs = 200
 
     # get column names from pickle_data
     channel_names = pickle_data[0].columns.values.tolist()
-    #print("Channel names: ", channel_names)
+    print("Channel names: ", channel_names)
 
     indices_to_delete = []
 
@@ -103,10 +104,10 @@ def get_coherence(pkl, band_start_hz, band_end_hz, interval_length = 1, fs = 200
         # strip numbers
         label = ''.join([i for i in elec_name if not i.isdigit()])
         # strip letters
-        number = int(''.join([i for i in elec_name if not i.isalpha()]))
-        # if the next electrode in the series exists
-        next_elec = f"{label}{str(number+1).zfill(2)}"
-        if next_elec in channel_names:
+        number = ''.join([i for i in elec_name if i.isdigit()])
+        if number != '' and f"{label}{str(int(number)+1).zfill(2)}" in channel_names:
+            # if the next electrode in the series exists
+            next_elec = f"{label}{str(int(number)+1).zfill(2)}"
             # subtract the next electrode in the series from the current electrode
             signals[channel_names.index(elec_name),:] = signals[channel_names.index(elec_name),:] - signals[channel_names.index(next_elec),:]
             # rename the current electrode
@@ -122,6 +123,29 @@ def get_coherence(pkl, band_start_hz, band_end_hz, interval_length = 1, fs = 200
     print("Bipolar montage constructed.")
     print("Shape of bipolar signals: ", signals.shape)
     #print("Channel names: ", channel_names)
+
+    # powerline noise
+    # apply a low-pass antialiasing filter at 80 Hz using scipy.signal at 180, 120, 60
+    if fs > 360:
+        notches = [180, 120, 60]
+    else:
+        notches = [120, 60]
+
+    for notch in notches:
+        # estimate phase and amplitude at notch
+        b, a = iirnotch(2*(notch/fs), 100, fs)
+        signals = filtfilt(b, a, signals, axis=1)
+
+    # resample to 200 Hz
+    new_fs = 200
+    frac = Fraction(new_fs, int(fs))
+    signals = resample_poly(
+        signals.T, up=frac.numerator, down=frac.denominator
+    ).T  # (n_samples, n_channels)
+    fs = new_fs
+
+    # subtract mean value from each channel
+    signals = signals - np.mean(signals, axis=1, keepdims=True)
 
     print("Calculating coherence...")
     
@@ -183,6 +207,13 @@ rids = [padId(x.split("_")[0]) for x in all_pats]
 # get list of real_offset_usec
 start_times = [getStartTime(fst,x) for x in all_pats]
 
+# load nights_classified_final.csv
+nights_classified = pd.read_csv("nights_classified_final.csv")
+# generate dictionary from each entry of the columns of csv file
+nights_classified_dict = {x:y for x,y in zip(nights_classified["patient"],nights_classified["night_number"])}
+# get list of nights
+nights = [nights_classified_dict[x] for x in all_pats]
+
 # skip N1
 sleep_stages_to_run = ["N2","N3","R"]
 # band cutoffs in Hz
@@ -203,6 +234,7 @@ parent_directory = os.path.join(os.path.dirname(os.path.abspath(os.getcwd())),'d
 # for each rid
 for k in range(len(rids)):
     rid = rids[k]
+    night = nights[k]
     print(f">>> Calculating coherences for {rid}... (patient {k+1} of {len(rids)})")
     iEEG_filename = all_pats[k]
     patient_directory = os.path.join(parent_directory,"sub-{}".format(rid))
@@ -210,10 +242,14 @@ for k in range(len(rids)):
     func_directory = os.path.join(patient_directory,'func')
     for root, dirs, files in os.walk(patient_directory, topdown=True):
         for fi in files:
-            # if the file contains results from night 2
-            if ("night2" in fi) and ("sleepstage" in fi):
+            # if the file contains results from the correct night
+            if (padId(fi.split("_")[0]) == rid) and (f"night{night}" in fi) and ("sleepstage" in fi):
                 ssr_path = os.path.join(root,fi)
                 break
+    # check if parent directory of ssr_path is the same as the patient directory
+    if os.path.dirname(ssr_path) != patient_directory:
+        print("SleepSEEG results not found, skipping...")
+        continue
     # print ssr_path
     print("SleepSEEG results path = {}".format(ssr_path))
     # for each sleep stage
@@ -226,7 +262,7 @@ for k in range(len(rids)):
             print(f"> Band: {band_name} in {rid}.")
             band_cutoffs = bands[band_name]
             # check if the coherence is already calculated
-            coherence_path = os.path.join(func_directory,f"sub-{rid}_{iEEG_filename}_{stage}_{band_name}_coherence.csv")
+            coherence_path = os.path.join(func_directory,f"sub-{rid}_{iEEG_filename}_night{night}_{stage}_{band_name}_coherence.csv")
             if not os.path.isfile(coherence_path):
                 # if contains letters
                 st = ssr_path.split("_")[2]
@@ -254,9 +290,9 @@ for k in range(len(rids)):
                     os.makedirs(func_directory)
                 # save pandas dataframe as csv
                 coherence_result.to_csv(coherence_path)
-                print(f"Coherence matrix saved for {rid}|{stage}|{band_name}.")
+                print(f"Coherence matrix saved for {rid}|night{night}|{stage}|{band_name}.")
             else:
-                print(f"Coherence matrix already exists for {rid}|{stage}|{band_name}. Skipping...")
+                print(f"Coherence matrix already exists for {rid}|night{night}|{stage}|{band_name}. Skipping...")
 
 # localize edges and assign z-scores
 if (args.score == True):
@@ -285,13 +321,7 @@ if (args.score == True):
             # save cutoff z-score as matrix
             #np.save(score_output_file) # TODO
 
-            
-    
-
-    
-
-    
-
+print("Done.")
 
 
 

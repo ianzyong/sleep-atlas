@@ -303,15 +303,16 @@ featfeat=zeros(Nfeat,Nch);
 for nch=1:Nch
     for nf=1:Nfeat
         % outlier detection
-        f=feature(nch,:,nf);
+        f=feature(nch,:,nf); % TODO: account for all nans
         in=isnan(f);
         f(in)=[];
+        % if the length of f is zero, continue
+        if isempty(f)
+            continue
+        end
         f=f-movmean(f,10);
         fs=sort(f);
-	
-	%size(feature)
-	%size(fs,2)
-        m=fs(round([.25 .75].*size(fs,2)));
+        m=fs(round([.25 .75].*size(fs,2))); 
         del=isnan(feature(nch,:,nf));
         del(~in)=f<m(1)-2.5*(m(2)-m(1))|f>m(2)+2.5*(m(2)-m(1))|isnan(f);
         feature(nch,del,nf)=NaN;

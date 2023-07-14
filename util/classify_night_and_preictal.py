@@ -25,6 +25,7 @@ import matplotlib.dates as md
 import gzip
 import shutil
 import datetime
+import csv
 
 # DEFINITIONS
 # convert number of seconds to hh:mm:ss
@@ -60,6 +61,15 @@ def getStartTime(fst,x):
     else:
         ans = fst.loc[fst['name'] == id][1]
     return convertTimeStamp(ans.values[0])
+
+def getNightNumber(ntc,x):
+    id = padId(x.split("_")[0])
+    ans = ntc.loc[ntc['patient'] == id]["night_to_classify"].values
+    # if there is no night number, return 2
+    if len(ans) == 0:
+        return 2
+    else:
+        return ans[0]
 
 def getNightSeizureStartTimes(dn,x,buffer=2*3600):
     id = padId(x.split("_")[0])
@@ -321,10 +331,13 @@ def classify_single_patient(username,password,iEEG_filename,rid,real_offset_sec,
             print("Decompressing .edf file...")
             with gzip.open(edf_file, 'r') as f_in, open(edf_file[0:-3], 'wb') as f_out:
                 shutil.copyfileobj(f_in, f_out)
+            classify_edf = edf_file[0:-3]
+        else:
+            classify_edf = edf_file
         # run SleepSEEG in MATLAB
         eng = matlab.engine.start_matlab()
         try:
-            eng.SleepSEEG(edf_file,sleep_result_prefix,extra_files,nargout=0)
+            eng.SleepSEEG(classify_edf,sleep_result_prefix,extra_files,nargout=0)
         except Exception as e:
             print(e)
             print("MATLAB error encountered, skipping to next night.")
@@ -410,7 +423,17 @@ rids = [padId(x.split("_")[0]) for x in all_pats]
 # get list of real_offset_usec
 start_times = [getStartTime(fst,x) for x in all_pats]
 # specify night number
-night_number = 2
+# load nights_to_clasify.csv
+ntc = pd.read_csv("nights_to_classify.csv")
+# get night number
+night_numbers = [getNightNumber(ntc,x) for x in all_pats]
+
+# save all_pats and night_numbers to a .csv
+with open("nights_classified_final.csv", "w") as f:
+    writer = csv.writer(f)
+    # write header
+    writer.writerow(["patient","night_number"])
+    writer.writerows(zip(all_pats,night_numbers))
 
 # read excel file as dataframe
 dn = pd.read_excel("day_night_seizure_data.xlsx")
@@ -423,7 +446,7 @@ night_start_times = [getNightSeizureStartTimes(dn,x,buffer) for x in all_pats]
 preictal_dur = 3600 # 1 hour
 
 # format argument list
-args = [[username,password,all_pats[x],rids[x],start_times[x],args.plot,night_number,night_start_times[x],preictal_dur] for x in range(len(all_pats))]
+args = [[username,password,all_pats[x],rids[x],start_times[x],args.plot,night_numbers[x],night_start_times[x],preictal_dur] for x in range(len(all_pats))]
 
 # remove items in args that are not in hup_list.csv
 hup_list = pd.read_csv("hup_list.csv", header=None)[0].tolist()
