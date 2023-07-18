@@ -21,6 +21,8 @@ import shutil
 from utils import get_iEEG_data
 import datetime
 
+#from config import CONFIG
+
 # definitions
 sleep_stage_dict = {
     "R": 1,
@@ -48,6 +50,13 @@ def getStartTime(fst,x):
     else:
         ans = fst.loc[fst['name'] == id][1]
     return convertTimeStamp(ans.values[0])
+
+def convert_hup_to_rid(rh_table,hup_id):
+    # get number from hup_id
+    hup_num = int(hup_id[3:6])
+    # get rid from rid_hup_table
+    rid = rh_table.loc[rh_table["hupsubjno"] == hup_num]["record_id"].values[0]
+    return rid
 
 def get_time_delta_for_stage(result_path, sleep_stage):
     # result_path: path to sleepSEEG summary csv
@@ -86,10 +95,13 @@ def get_coherence(pkl, band_start_hz, band_end_hz, interval_length = 1, fs = 200
     # read pickle file
     pickle_data = pd.read_pickle(pkl)
     signals = np.transpose(pickle_data[0].to_numpy())
+    # if signals is all nan, warn
+    if np.isnan(signals).all():
+        print("WARNING: signals contains only NaN values!")
     # replace NaN values with interpolated values
-    signals = pd.DataFrame(signals).interpolate().to_numpy()
+    signals = pd.DataFrame(signals).interpolate(axis=1).fillna(method="ffill",axis=1).fillna(method="bfill",axis=1).to_numpy()
     # replace NaN values with 0
-    signals = np.nan_to_num(signals)
+    #signals = np.nan_to_num(signals)
     #print(signals)
     print("Shape of signals: ", signals.shape)
 
@@ -179,7 +191,8 @@ parser.add_argument("password", help="path to iEEG.org password bin file")
 parser.add_argument("metadata_path", help="path to combined_atlas_metadata.csv")
 parser.add_argument("-r", "--reverse", help="run patients in reverse sorted order", action="store_true", default=False)
 parser.add_argument("-t", "--plot", help="plot adjacency matrices and save as a .png", action="store_true", default=False)
-parser.add_argument("-z", "--score", help="get z-scores and normative values", action="store_true", default=False)
+parser.add_argument("-c", "--construct", help="construct normative atlases and save as .csv files", action="store_true", default=False)
+parser.add_argument("-z", "--zscore", help="calculate abnormality z-scores for all patient coherence matrices", action="store_true", default=False)
 args = parser.parse_args()
 
 # read metadata csv
@@ -294,32 +307,80 @@ for k in range(len(rids)):
             else:
                 print(f"Coherence matrix already exists for {rid}|night{night}|{stage}|{band_name}. Skipping...")
 
-# localize edges and assign z-scores
-if (args.score == True):
+# localize edges and construct atlases
+if (args.construct == True):
+    atlas_directory = os.path.join(parent_directory,"atlas")
+    # load rid_hup_table.csv
+    rid_hup_table = pd.read_csv("/mnt/leif/littlab/users/ianzyong/sleep-atlas/util/rid_hup_table.csv")
+    
+    # get set of unique values in "reg" column from metadata_csv
+    regions = set(metadata_csv["reg"])
+    # remove nans
+    regions = [x for x in regions if str(x) != 'nan']
+    # sort and convert to list
+    regions = sorted(list(regions))
+    print(f"Regions: {regions}")
     # for each sleep stage
+
     for stage in sleep_stages_to_run:
+        print(f">> Sleep stage: {stage}")
         # for each band
         for band_name in band_names:
+            print(f"> Band: {band_name}")
+            
+            # initialize pandas dataframe with shape (num_regions, num_regions) and regions as column and row names and dtype=object
+            this_atlas = pd.DataFrame(np.zeros((len(regions),len(regions))),columns=regions,index=regions,dtype=object)
+            # set every value to an empty list
+            for i in range(len(regions)):
+                for j in range(len(regions)):
+                    this_atlas.iloc[i,j] = []
+            
             coherence_paths = []
             # find all coherence matrices (one for each patient) matching this stage and band name
+            rids_for_lookup = []
             for k in range(len(rids)):
                 rid = rids[k]
                 iEEG_filename = all_pats[k]
                 patient_directory = os.path.join(parent_directory,"sub-{}".format(rid))
                 func_directory = os.path.join(patient_directory,'func')
-                coherence_path = os.path.join(func_directory,f"sub-{rid}_{iEEG_filename}_{stage}_{band_name}_coherence.npy")
+                this_night = nights_classified_dict[iEEG_filename]
+                coherence_path = os.path.join(func_directory,f"sub-{rid}_{iEEG_filename}_night{this_night}_{stage}_{band_name}_coherence.csv")
                 if os.path.isfile(coherence_path):
                     coherence_paths.append(coherence_path)
-            # load numpy arrays in coherence_paths
-            coherences = [np.load(x) for x in coherence_paths]
+                    rids_for_lookup.append(convert_hup_to_rid(rid_hup_table,rid))
+            print(f"Number of coherence matrices found: {len(coherence_paths)}")
+            # load csvs into list of pandas dataframes
+            coherences = [pd.read_csv(x,index_col=0,header=0) for x in coherence_paths]
             # for each coherence matrix, get a list of regions and corresponding coherences
+            for k in range(len(coherences)):
+                matrix = coherences[k]
+                this_rid = rids_for_lookup[k]
+                # get data from metadata_csv where name matches this_rid and normative is True
+                full_rid = f"sub-RID{this_rid:04d}"
+                this_pt_metadata = metadata_csv[(metadata_csv["pt"] == full_rid) & (metadata_csv["normative"] == True)]
+                # construct a dictionary from this_pt_metadata using the name column as keys and the reg column as values
+                this_pt_dict = dict(zip(this_pt_metadata["name"],this_pt_metadata["reg"]))
+                # for each row and column in the feature matrix
+                missing_localization = 0
+                for i in range(len(matrix)):
+                    for j in range(len(matrix)):
+                        # get the row and column labels
+                        row = matrix.index[i]
+                        col = matrix.columns[j]
+                        # get the region names from the metadata dictionary
+                        try:
+                            row_reg = this_pt_dict[row]
+                            col_reg = this_pt_dict[col]
+                        except Exception as e:
+                            missing_localization += 1
+                            continue
+                        # add the value to the corresponding list in this_atlas
+                        this_atlas.loc[row_reg,col_reg].append(matrix.iloc[i,j])
+                print(f"Missing localization count for {coherence_paths[k]}: {missing_localization}")
 
-            # calculate z-scores
-
-            # take the 75th percentile z-score for each region
-
-            # save cutoff z-score as matrix
-            #np.save(score_output_file) # TODO
+            # save this_atlas as a .csv file
+            this_atlas.to_csv(os.path.join(atlas_directory,f"{stage}_{band_name}_atlas.csv"))
+            print(f"Atlas saved for {stage}|{band_name}.")
 
 print("Done.")
 

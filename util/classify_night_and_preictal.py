@@ -118,15 +118,20 @@ def get_edf(username, password, iEEG_filename, rid, start_time_usec, stop_time_u
         elif os.path.exists(final_edf):
             print(f".edf file already exists for {interval_name}")
             return final_edf
-        elif os.path.exists(output_file):
+        elif os.path.exists(output_file) and os.path.getsize(output_file) > 0:
             print(f".pickle file already exists for {interval_name}")
         else:
+            if os.path.exists(output_file) and os.path.getsize(output_file) == 0:
+                print(f".pickle file already exists for {interval_name}, but is empty. Downloading again.")
+                # delete empty file
+                os.remove(output_file)
             # download iEEG data
             for attempt in range(num_attempts):
                 try:
                     get_iEEG_data(username, password, iEEG_filename, start_time_usec, stop_time_usec, removed_channels, output_file)
-                except ieeg.ieeg_api.IeegServiceError:
-                    print("No iEEG data exists for this night, skipping.")
+                except ieeg.ieeg_api.IeegServiceError as e:
+                    print(e)
+                    #print("No iEEG data exists for this night, skipping.")
                     return
                 except ieeg.ieeg_api.IeegConnectionError as e:
                     print(e)
@@ -159,7 +164,9 @@ def get_edf(username, password, iEEG_filename, rid, start_time_usec, stop_time_u
     try:
         pickle_data = pd.read_pickle(output_file)
     except EOFError:
-        print("Empty pickle file, skipping.")
+        print("Empty pickle file, removing and skipping.")
+        # delete output file
+        os.remove(output_file)
         return
     signals = np.transpose(pickle_data[0].to_numpy())
 
