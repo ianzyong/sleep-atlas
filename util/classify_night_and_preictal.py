@@ -135,6 +135,7 @@ def get_edf(username, password, iEEG_filename, rid, start_time_usec, stop_time_u
                     return
                 except ieeg.ieeg_api.IeegConnectionError as e:
                     print(e)
+                    print(repr(e))
                     print(f"Error encountered while downloading {iEEG_filename}, {start_time_usec} to {stop_time_usec}, retrying... ({attempt+1}/{num_attempts})")
                 else:
                     break
